@@ -13,19 +13,6 @@
 
 ; parsed expression
  
-; (define-datatype expression expression?  
-;   [var-exp        ; variable references
-;    (id symbol?)]
-;   [lit-exp        ; "Normal" data.  Did I leave out any types?
-;    (datum
-;     (lambda (x)
-;       (ormap 
-;        (lambda (pred) (pred x))
-;        (list number? vector? boolean? symbol? string? pair? null?))))]
-;   [app-exp        ; applications
-;    (rator expression?)
-;    (rands (list-of expression?))]  
-;   )
 (define (implist-of pred?)
   (lambda(implst)
     (let helper ([ls implst])
@@ -54,7 +41,7 @@
       (two-armed? boolean?)
       (test expression?)
       (then-op expression?)
-      (else-op (or-pred null? expression?))]
+      (else-op (lambda(x) (or (null? x) (expression? x))))]
   [quote-exp 
         (datum (lambda (x)
           (ormap 
@@ -81,7 +68,9 @@
       (body (list-of expression?))
       (env environment?)])
    
-	
+(define-datatype syntax-val syntax-val?
+  [prim-syntax
+   (name symbol?)])	   ; there will be more
 
 ;-------------------+
 ;                   |
@@ -98,21 +87,6 @@
 (define 1st car)
 (define 2nd cadr)
 (define 3rd caddr)
-
-; (define parse-exp         
-;   (lambda (datum)
-;     (cond
-;      [(symbol? datum) (var-exp datum)]
-;      [(number? datum) (lit-exp datum)]
-;      [(string? datum) (lit-exp datum)]
-;      [(vector? datum) (lit-exp datum)]
-;      [(boolean? datum) (lit-exp datum)]
-;      [(pair? datum)
-;       (cond
-;        [else (app-exp (parse-exp (1st datum))
-; 		      (map parse-exp (cdr datum)))])]
-;      [else (eopl:error 'parse-exp "bad expression: ~s" datum)])))
-
 
 (define parse-exp
   (lambda (datum)
@@ -212,8 +186,6 @@
 
 
 
-
-
 ; Environment definitions for CSSE 304 Scheme interpreter.  Based on EoPL section 2.3
 
 (define empty-env
@@ -250,51 +222,40 @@
     	      (apply-env env sym succeed fail)))))))
 
 
-
-
-
-;-----------------------+
-;                       |
-;   SYNTAX EXPANSION    |
-;                       |
-;-----------------------+
-
-
-
-; To be added later
-
-
-
-
-
-
-
-
-
 ;-------------------+
 ;                   |
 ;   INTERPRETER    |
 ;                   |
 ;-------------------+
 
+(define rep      ; "read-eval-print" loop.
+  (lambda ()
+    (display "--> ")
+    ;; notice that we don't save changes to the environment...
+    (let ([answer (top-level-eval (parse-exp (read)))])
+      ;; TODO: are there answers that should display differently?
+      (eopl:pretty-print answer) (newline)
+      (rep))))  ; tail-recursive, so stack doesn't grow.
+
+(define eval-one-exp
+  (lambda (x) (top-level-eval (parse-exp x))))
 
 
 ; top-level-eval evaluates a form in the global environment
-
 (define top-level-eval
   (lambda (form)
     ; later we may add things that are not expressions.
     (eval-exp form (empty-env))))
 
-; eval-exp is the main component of the interpreter
 
+; eval-exp is the main component of the interpreter
 (define eval-exp
   (lambda (exp env)
     (cases expression exp
       [lit-exp (datum) datum]
       [quote-exp (datum) datum]
       [var-exp (id)
-				(apply-env env id; look up its value.
+				(apply-env env id ; look up its value.
       	   (lambda (x) x) ; procedure to call if id is in the environment 
            (lambda ()
              (apply-env global-env id
@@ -310,7 +271,7 @@
       
       [let-exp (lettype vars-ls body)
         (eval-exp (case lettype
-          [(let) 
+          [(let)
             (app-exp (lambda-exp (map car vars-ls) body)
               (map cdr vars-ls))]
           [(let*)  
@@ -323,44 +284,28 @@
         env)]
 
       [app-exp (rator rands)
-        (cases expression rator
-          [var-exp (sym)
-            (case sym
-              [(begin)
-                (eval-exp (app-exp (lambda-exp '() rands) '()) env)]
-              [(and)
-                (eval-exp 
-                  (cond
-                    [(null? rands) (lit-exp #f)]
-                    [(null? (cdr rands)) (car rands)]
-                    [else (if-exp #t (car rands)
-                      (app-exp (var-exp 'and) (cdr rands))
-                      (lit-exp #f))])
-                env)]
-              [(or)
-                (eval-exp 
-                  (cond
-                    [(null? rands) (lit-exp #t)]
-                    [(null? (cdr rands)) (car rands)]
-                    [else (let-exp 'let
-                        (list (cons 'val (car rands)))
-                        (list (if-exp #t (var-exp 'val) (var-exp 'val) 
-                            (app-exp (var-exp 'or) (cdr rands)))))])
-                env)]
-              [else (let ([proc-value (eval-exp rator env)]
-                  [args (map (lambda(x) (eval-exp x env)) rands)])
-                (apply-proc proc-value args))])]
-
-          [else (let ([proc-value (eval-exp rator env)]
-                  [args (map (lambda(x) (eval-exp x env)) rands)])
-              (apply-proc proc-value args))])]
+        (let ([syntax (apply-env global-syntax-env ; see if this is a syntax and expand if necessary
+                    (cases expression rator
+                      [var-exp (id) id]
+                      [else #f])
+                    (lambda(x) x)
+                    (lambda() #f))])
+          (if syntax
+            (eval-exp (apply-syntax syntax rands) env)
+            (let ([proc-value (eval-exp rator env)]
+              [args (map (lambda(x) (eval-exp x env)) rands)])
+                  (apply-proc proc-value args))))]
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 ; evaluate the list of operands, putting results into a list
+   
 
-; (define map (lambda(x) (eval-exp x env))
-;   (lambda (rands)
-;     (map eval-exp rands)))
+
+;-----------------------+
+;                       |
+;      PROCEDURE       |
+;                       |
+;-----------------------+
 
 ;  Apply a procedure to its arguments.
 ;  At this point, we only have primitive procedures.  
@@ -370,7 +315,7 @@
   (lambda (proc-value args)
     (cases proc-val proc-value
       [prim-proc (op) (apply-prim-proc op args)]
-			[closure (vars body env)
+      [closure (vars body env)
         (let lambdaEval ([code body]
           [env 
             (if (list? vars)
@@ -393,16 +338,15 @@
             (eval-exp (car code) env)
             (begin (eval-exp (car code) env)
               (lambdaEval (cdr code) env))))]
-      ; You will add other cases
-      [else (eopl:error 'apply-proc
-                   "Attempt to apply bad procedure: ~s" 
-                    proc-value)])))
-  
+      [else (eopl:error 'apply-proc "Attempt to apply bad procedure: ~s" proc-value)])))
+
+
 (define *prim-proc-names* '(apply + - * / add1 sub1 zero? not = < > <= >= cons list null? assq eq? equal?
                             atom? car caar caaar caadr cadar cdaar caddr cdadr cddar cdddr cadr
                             cdar cddr cdr length list->vector list? pair? procedure? vector->list
                             vector make-vector vector-ref vector? number? symbol? set-car! set-cdr!
                             vector-set! display newline))
+
 
 (define global-env         ; for now, our initial global environment only contains 
   (extend-env            ; procedure names.  Recall that an environment associates
@@ -411,8 +355,10 @@
           *prim-proc-names*)
      (empty-env)))
 
+
 ; Usually an interpreter must define each 
 ; built-in procedure individually.  We are "cheating" a little bit.
+
 
 (define apply-prim-proc
   (lambda (prim-proc args)
@@ -469,36 +415,52 @@
       [(vector-set!) (apply vector-set! args)]
       [(display) (apply display args)]
       [(newline) (apply newline args)]
-      [else (error 'apply-prim-proc 
-            "Bad primitive procedure name: ~s" 
-            prim-proc)])))
+      [else (error 'apply-prim-proc "Bad primitive procedure name: ~s" prim-proc)])))
 
-(define rep      ; "read-eval-print" loop.
-  (lambda ()
-    (display "--> ")
-    ;; notice that we don't save changes to the environment...
-    (let ([answer (top-level-eval (parse-exp (read)))])
-      ;; TODO: are there answers that should display differently?
-      (eopl:pretty-print answer) (newline)
-      (rep))))  ; tail-recursive, so stack doesn't grow.
 
-(define eval-one-exp
-  (lambda (x) (top-level-eval (parse-exp x))))
 
-; Other Utility Methods
-(define not-pred
-  (lambda (pred?)
-    (lambda (arg)
-      (not (pred? arg)))))
+;-----------------------+
+;                       |
+;   SYNTAX EXPANSION    |
+;                       |
+;-----------------------+
 
-(define equal-to-n
-  (lambda (n)
-    (lambda (arg)
-      (= n arg))))
+(define apply-syntax
+  (lambda (syntax-value body)
+    (cases syntax-val syntax-value
+      [prim-syntax (op) (apply-prim-syntax op body)]
+      [else (eopl:error 'apply-syntax "Attempt to apply bad syntax: ~s" syntax-value)])))
 
-(define or-pred
-  (lambda (preda predb)
-    (lambda (obj)
-      (or (preda obj) (predb obj)))))
 
+; To be added later
+(define *prim-syntax-names* '(;let let* 
+                              begin and or))
+
+
+(define global-syntax-env         
+  (extend-env            
+     *prim-syntax-names*
+     (map prim-syntax      
+          *prim-syntax-names*)
+     (empty-env)))
+
+
+(define apply-prim-syntax
+  (lambda (prim-syntax rands)
+    (case prim-syntax
+      [(begin) (app-exp (lambda-exp '() rands) '())]
+      [(and)  (cond
+            [(null? rands) (lit-exp #f)]
+            [(null? (cdr rands)) (car rands)]
+            [else (if-exp #t (car rands)
+              (app-exp (var-exp 'and) (cdr rands))
+              (lit-exp #f))])]
+      [(or) (cond
+            [(null? rands) (lit-exp #t)]
+            [(null? (cdr rands)) (car rands)]
+            [else (let-exp 'let
+                (list (cons 'val (car rands)))
+                (list (if-exp #t (var-exp 'val) (var-exp 'val) 
+                    (app-exp (var-exp 'or) (cdr rands)))))])]
+      [else (eopl:error 'apply-prim-proc "Bad primitive procedure name: ~s" prim-proc)])))
 
