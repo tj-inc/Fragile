@@ -18,6 +18,8 @@
 
 (load "chez-init.ss")
 (load "syntax.ss")
+(load "utilities.ss")
+(load "built_in_proc_init.ss")
 
 ;-------------------+
 ;                   |
@@ -150,8 +152,23 @@
       (extended-env-record (syms vals encl_env)
         (let ((pos (list-find-position sym syms)))
           (if (number? pos)
-            (list-set-at-index! vals pos val) ; Value is found
+            ; (list-set-at-index! vals pos val) ; I honestly don't know why this doesn't work, but it works in define.
+            (modify! (list-ref vals pos) (de-refer val)) ; Value is found
             (add-to-env! env sym val) ; We don't care if it is in global; if it's not found in the current scope, it just needs to be added.
+            ))))))
+
+(define set-in-env!
+  (lambda (env sym val)
+    (cases environment env
+      (empty-env-record () (set-in-env! global-env sym val)) ; At top level
+      (extended-env-record (syms vals encl_env)
+        (let ((pos (list-find-position sym syms)))
+          (if (number? pos)
+            ; (list-set-at-index! vals pos val) ; I honestly don't know why this doesn't work, but it works in define.
+            (modify! (list-ref vals pos) (de-refer val)) ; Value is found
+            (if (eq? env global-env)
+                (add-to-env! env sym val) ; We only add new entry in global if value not found;
+                (set-in-env! encl_env sym val))
             ))))))
 
 
@@ -328,11 +345,8 @@
 
 ; these three functions define ADT reference, the return value of eval-exp
 (define refer box)
-
 (define de-refer unbox)
-
 (define reference? box?)
-
 (define modify! set-box!)
 
 ; eval-exp is the main component of the interpreter
@@ -358,8 +372,7 @@
       [lambda-cexp (vars ref-map body)
         (refer (closure vars ref-map body env))]
       [set!-cexp (var val)
-        (let ([ref (eval-exp (var-cexp var) env)])
-          (modify! ref (de-refer (eval-exp val env))))
+        (set-in-env! env var (eval-exp val env))
         (refer (void))]
       [define-cexp (var val)
         (define-in-env! env var (eval-exp val env))
@@ -392,7 +405,7 @@
               (if (null? (cdr args))
                 (eopl:error 'apply "with no argument ~s" proc-v))
               (apply-proc (car args)
-                (let loop ([nextarg (cadr args)] [leftarg (cddr args)]) ; Caution: No error-checking for 0 args
+                (let loop ([nextarg (cadr args)] [leftarg (cddr args)])
                   (if (null? leftarg)
                     (if (list? (de-refer nextarg))
                       (map refer (de-refer nextarg))
@@ -410,19 +423,28 @@
           (let lambdaEval ([code body]
             [env 
               (if (list? vars)
-                (if (= (length vars)(length args))
+                (if (= (length vars) (length args))
                   (extend-env vars (map
                                       (lambda (ref? x) (if ref? x (refer (de-refer x)))) ; Do not de-refer if (ref x)
                                       ref-map args)  env)
                   (eopl:error 'apply-proc "incorrect number of argument: closure ~a ~a" proc-v args))
                 (extend-env (implst->list vars)
-                  (map (lambda (ref? x) (if ref? x (refer (de-refer x))))
-                    (let loop ([vars vars][args args]) ; match all parts of args to vars
-                      (if (pair? vars)
-                        (if (pair? args)
-                          (cons (car args) (loop (cdr vars) (cdr args)))
-                          (eopl:error 'apply-proc "not enough arguments: closure ~a ~a" proc-v args))
-                        (list (refer (map de-refer args))))))
+                  (let loop ([ref-map ref-map] [args args])
+                    (if (pair? ref-map)
+                      (if (pair? ref-map)
+                        (cons
+                          (if (car ref-map) (car args) (refer (de-refer (car args))))
+                          (loop (cdr ref-map) (cdr args))))
+                      (if ref-map
+                        (list (refer args))
+                        (list (refer (map (lambda (arg) (de-refer arg)) args))))))
+                  ; (map (lambda (ref? x) (if ref? x (refer (de-refer x)))) ref-map
+                  ;   (let loop ([vars vars][args args]) ; match all parts of args to vars
+                  ;     (if (pair? vars)
+                  ;       (if (pair? args)
+                  ;         (cons (car args) (loop (cdr vars) (cdr args)))
+                  ;         (eopl:error 'apply-proc "not enough arguments: closure ~a ~a" proc-v args))
+                  ;       (list (map (lambda (ref? x) (if ref? x (refer (de-refer x)))) args)))))
                   env))])
             (if (null? (cdr code))
               (eval-exp (car code) env)
@@ -441,11 +463,12 @@
 (define (reset-global-env)
   (set! global-env
     (extend-env
-       (append *spec-proc-names* *prim-proc-names*)
+       (append *spec-proc-names* *prim-proc-names* '()) ; Removes the pointer to each element in *prim-proc-names*
        (append 
           (map (lambda(x) (refer (special-proc x))) *spec-proc-names*)
           (map (lambda(x) (refer (prim-proc x))) *prim-proc-names*))
-       (empty-env))))
+       (empty-env)))
+  (built_in_proc_init))
 
 (reset-global-env)
 
@@ -519,31 +542,5 @@
             "Bad primitive procedure name: ~s" 
             prim-proc)])))
 
-
-; Other Utility Methods
-(define implst->list
-  (letrec ([loop (lambda (vars)
-    (if (pair? vars)
-        (cons (car vars) (loop (cdr vars)))
-        (list vars)))])
-  loop))
-
-(define list-set-at-index!
-  (lambda (ls ind val)
-    (if (= 0 ind) (set-car! ls val)
-      (list-set-at-index! (cdr ls) (- ind 1) val))))
-
-(define implst-map ; No error checking for now
-  (lambda (f ls . more)
-    (letrec ([map-one-implist
-            (lambda (ls)
-              (cond
-                [(and (not (pair? ls)) (not (null? ls))) (f ls)]
-                [(null? ls) '()]
-                [else (cons (f (car ls)) (map-one-implist (cdr ls)))]))])
-      (if (null? more)
-        (map-one-implist ls)
-        (apply map map-one-implist ls more)))))
-
+; Initialize syntax expansions
 (load "syntaxExpansion.ss")
-(load "procdedures.ss")
