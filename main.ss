@@ -411,10 +411,12 @@
             [env 
               (if (list? vars)
                 (if (= (length vars)(length args))
-                  (extend-env vars (map (lambda(x)(refer (de-refer x))) args)  env)
+                  (extend-env vars (map
+                                      (lambda (ref? x) (if ref? x (refer (de-refer x)))) ; Do not de-refer if (ref x)
+                                      ref-map args)  env)
                   (eopl:error 'apply-proc "incorrect number of argument: closure ~a ~a" proc-v args))
                 (extend-env (implst->list vars)
-                  (map (lambda(x) (refer (de-refer x)))
+                  (map (lambda (ref? x) (if ref? x (refer (de-refer x))))
                     (let loop ([vars vars][args args]) ; match all parts of args to vars
                       (if (pair? vars)
                         (if (pair? args)
@@ -426,7 +428,6 @@
               (eval-exp (car code) env)
               (begin (eval-exp (car code) env)
                 (lambdaEval (cdr code) env))))]
-        ; You will add other cases
         [else (eopl:error 'apply-proc "Attempt to apply bad procedure: ~s" proc-v)]))))
 
 
