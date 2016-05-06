@@ -287,7 +287,7 @@
           (multpt (exprpt 'e) (emptpt)))
         (listpt (multpt (exprpt 'v) (emptpt))
           (multpt (exprpt 'e) (emptpt))))
-      (list ; if 
+      (list ; if gf
         (listpt (exprpt 'p)
           (listpt (exprpt 't)
             (listpt (exprpt 'e) (emptpt)))))
@@ -469,10 +469,10 @@
           (map (lambda(x) (refer (special-proc x))) *spec-proc-names*)
           (map (lambda(x) (refer (prim-proc x))) *prim-proc-names*))
        (empty-env)))
-  (procedure_init)
   (set! global-syntax-env
     (extend-env '() '() (empty-env)))
-  (syntax_expansion_init))
+  (syntax_expansion_init)
+  (procedure_init))
 
 ; Usually an interpreter must define each 
 ; built-in procedure individually.  We are "cheating" a little bit.
