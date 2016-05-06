@@ -1,4 +1,4 @@
-(define (built_in_proc_init)
+(define (procedure_init)
 
 (eval-many-exps '(
   (define map
