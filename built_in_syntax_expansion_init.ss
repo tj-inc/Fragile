@@ -1,4 +1,5 @@
-(define (addSyntaxExpansion)
+(define (built_in_syntax_expansion_init)
+
 (eval-many-exps '(
 
 (define-syntax if

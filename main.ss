@@ -20,6 +20,7 @@
 (load "syntax.ss")
 (load "utilities.ss")
 (load "built_in_proc_init.ss")
+(load "built_in_syntax_expansion_init.ss")
 
 ;-------------------+
 ;                   |
@@ -468,9 +469,8 @@
           (map (lambda(x) (refer (special-proc x))) *spec-proc-names*)
           (map (lambda(x) (refer (prim-proc x))) *prim-proc-names*))
        (empty-env)))
-  (built_in_proc_init))
-
-(reset-global-env)
+  (built_in_proc_init)
+  (built_in_syntax_expansion_init))
 
 ; Usually an interpreter must define each 
 ; built-in procedure individually.  We are "cheating" a little bit.
@@ -542,5 +542,5 @@
             "Bad primitive procedure name: ~s" 
             prim-proc)])))
 
-; Initialize syntax expansions
-(load "syntaxExpansion.ss")
+; Initialize interpreter
+(reset-global-env)
