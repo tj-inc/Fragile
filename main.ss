@@ -287,7 +287,7 @@
           (multpt (exprpt 'e) (emptpt)))
         (listpt (multpt (exprpt 'v) (emptpt))
           (multpt (exprpt 'e) (emptpt))))
-      (list ; if gf
+      (list ; if
         (listpt (exprpt 'p)
           (listpt (exprpt 't)
             (listpt (exprpt 'e) (emptpt)))))
