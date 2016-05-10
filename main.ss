@@ -3,9 +3,9 @@
 ;:  Single-file version of the interpreter.
 ;; Easier to submit to server, probably harder to use in the development process
 
-; (define apcont
-;   (lambda (k . x)
-;     (apply k x)))
+(define apcont
+  (lambda (k . x)
+    (apply k x)))
 
 (define (implist-of pred?)
   (lambda(implst)
@@ -442,7 +442,8 @@
         (eval-exp 
           (parse-exp form 
             (empty-templete) (lambda (temp result) result)) 
-          (empty-local-env))])))
+          (empty-local-env)
+          (lambda (x) x))])))
 
 ; to easy typing eval-one-exp
 (define-syntax i
@@ -483,32 +484,35 @@
 ; this well help the implementation of multiple return value
 ; It also makes reference easier
 (define eval-exp
-  (lambda (exp env)
+  (lambda (exp env k)
     (cases cexpression exp
-      [lit-cexp (datum) (refer datum)]
+      [lit-cexp (datum) (apcont k (refer datum))]
       [var-cexp (varinfo)
 				(apply-local-env env varinfo ; look up its value.
-    	   (lambda (x) x) ; procedure to call if id is in the environment 
+    	   (lambda (x) (apcont k x)) ; procedure to call if id is in the environment 
          (lambda () (eopl:error 'apply-local-env "variable not found in environment: ~s" varinfo)))]
       [if-cexp (test then-op else-op)
         (if (de-refer (eval-exp test env))
-          (eval-exp then-op env)
-          (eval-exp else-op env))]
+          (eval-exp then-op env k)
+          (eval-exp else-op env k))]
       [lambda-cexp (vars ref-map body)
-        (refer (closure (not (= (length vars)(length ref-map)))
-                        ref-map body env))]
+        (apcont k 
+          (refer (closure (not (= (length vars)(length ref-map)))
+                        ref-map body env)))]
       [set!-cexp (varinfo val)
-        (apply-local-env env varinfo
-          (lambda(ref) (modify! ref (de-refer (eval-exp val env))))
-          (lambda() (update-table! global-env (eval-exp val env))))
-        (refer)]
+        (eval-exp val env 
+          (lambda (x)
+            (apply-local-env env varinfo
+              (lambda(ref) (modify! ref (de-refer x)))
+              (lambda() (update-table! global-env x)))))
+        (apcont k (refer))]
       [define-cexp (var val)
         (define-in-local-env! env var (eval-exp val env))
-        (refer)]
+        (apcont k (refer))]
       [app-cexp (rator rands)
-        (let ([procref (eval-exp rator env)]
+        (let ([procref (eval-exp rator env (lambda (x) x))]
               [argsref (map (lambda(x) (eval-exp x env)) rands)])
-          (apply-proc procref argsref))]
+          (apply-proc procref argsref k))]
       [else (eopl:error 'eval-exp "Bad abstract syntax: ~a" exp)])))
 
 ; evaluate the list of operands, putting results into a list
@@ -519,10 +523,10 @@
 ;   proc-r: reference of a procedure, not de-referred
 ;   args: list of arguments, the list is not referred, but each arg is referred
 (define apply-proc
-  (lambda (proc-r args) ; args should not have been de-referred
+  (lambda (proc-r args k) ; args should not have been de-referred
     (let ([proc-v (de-refer proc-r)])
       (cases proc-val proc-v
-        [prim-proc (op proc) (refer (apply proc (map de-refer args)))]
+        [prim-proc (op proc) (apcont k (refer (apply proc (map de-refer args))))]
         [special-proc (op)
           (case op
             [(apply)
@@ -534,22 +538,28 @@
                     (if (list? (de-refer nextarg))
                       (map refer (de-refer nextarg))
                       (eopl:error 'apply "The last argument of apply should be a proper list of arguments ~s" nextarg))
-                    (cons nextarg (loop (car leftarg) (cdr leftarg))))))]
+                    (cons nextarg (loop (car leftarg) (cdr leftarg)))))
+                k)]
             [(call-with-values)
               (if (not (= 2 (length args)))
                 (eopl:error 'call-with-values "call-with-values takes two parameters: a producer and a consumer: ~s" args))
-              (let ([ret (apply-proc (car args) '())])
-                  (apply-proc (cadr args) (map refer (de-refer-aslist ret))))]
-            [(values) (apply refer (map de-refer args))])]
+              (apply-proc (car args) '()
+                (lambda (ret) 
+                  (apply-proc (cadr args) (map refer (de-refer-aslist ret))
+                    k)))
+              ; (let ([ret (apply-proc (car args) '())])
+                  ; (apply-proc (cadr args) (map refer (de-refer-aslist ret))))
+              ]
+            [(values) (apcont k (apply refer (map de-refer args)))])]
         [closure (vary? ref-map body env)
-          (let lambdaEval ([code body]
+          (let lambdaEval ([code body][k k]
             [env (extend-local-env vary? ref-map args env
-                    (lambda (x) x)
+                    (lambda (x) (x)
                     (lambda () (eopl:error 'apply-proc "not enough arguments: closure ~a ~a" proc-v args)))])
             (if (null? (cdr code))
-              (eval-exp (car code) env)
-              (begin (eval-exp (car code) env)
-                (lambdaEval (cdr code) env))))]
+              (eval-exp (car code) env k)
+              (begin (eval-exp (car code) env (lambda (x) x))
+                (lambdaEval (cdr code) env k))))]
         [else (eopl:error 'apply-proc "Attempt to apply bad procedure: ~s" proc-v)]))))
 
 
