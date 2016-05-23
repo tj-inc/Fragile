@@ -63,7 +63,8 @@
    (name symbol?)]
   [closure (vars (implist-of symbol?))
       (body (list-of cexpression?))
-      (env environment?)])   
+      (env environment?)]
+  [continuation-proc (k (lambda (x) #t))])   
 
 
 ;-------------------+
@@ -365,6 +366,8 @@
             (eval-exp (car code) env)
             (begin (eval-exp (car code) env)
               (lambdaEval (cdr code) env))))]
+      [continuation-proc (k)
+        (apply k args)]
       ; You will add other cases
       [else (eopl:error 'apply-proc "Attempt to apply bad procedure: ~s" proc-value)])))
 
@@ -374,11 +377,16 @@
 ;                             vector->list vector make-vector vector-ref vector? number? symbol? set-car! set-cdr!
 ;                             vector-set! display newline void quotient))
 
+; (define *prim-proc-names* #f)
+; (define glbal-env #f)
+; (define global-syntax-env #f)
+
 (define (reset-global-env)
-  (set! *prim-proc-names* '(apply + - * / add1 sub1 zero? not = < > <= >= cons list null? assq eq?
+  (set! *prim-proc-names* (append '(apply + - * / add1 sub1 zero? not = < > <= >= cons list null? assq eq?
                             eqv? equal? atom? car cdr length list->vector list? pair? append list-tail procedure?
                             vector->list vector make-vector vector-ref vector? number? symbol? set-car! set-cdr!
-                            vector-set! display newline void quotient))
+                            vector-set! display newline void quotient call/cc) '()))
+  (display *prim-proc-names*)
   (set! global-env
     (extend-env
        *prim-proc-names*
@@ -446,6 +454,7 @@
       [(newline) (apply newline args)]
       [(void) (apply void args)]
       [(quotient) (apply quotient args)]
+      [(call/cc) (call/cc (lambda (k) (apply-proc (car args) (list (continuation-proc k)))))]
       [else (error 'apply-prim-proc 
             "Bad primitive procedure name: ~s" 
             prim-proc)])))
