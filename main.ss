@@ -237,8 +237,8 @@
 ;                       |
 ;-----------------------+
 
-(define global-syntax-env
-  (extend-env '() '() (empty-env)))
+; (define global-syntax-env
+;   (extend-env '() '() (empty-env)))
 
 ; To be added with define-syntax
 (define core-syntax-env 
@@ -369,20 +369,26 @@
       [else (eopl:error 'apply-proc "Attempt to apply bad procedure: ~s" proc-value)])))
 
 
-(define *prim-proc-names* '(apply + - * / add1 sub1 zero? not = < > <= >= cons list null? assq eq?
+; (define *prim-proc-names* '(apply + - * / add1 sub1 zero? not = < > <= >= cons list null? assq eq?
+;                             eqv? equal? atom? car cdr length list->vector list? pair? append list-tail procedure?
+;                             vector->list vector make-vector vector-ref vector? number? symbol? set-car! set-cdr!
+;                             vector-set! display newline void quotient))
+
+(define (reset-global-env)
+  (set! *prim-proc-names* '(apply + - * / add1 sub1 zero? not = < > <= >= cons list null? assq eq?
                             eqv? equal? atom? car cdr length list->vector list? pair? append list-tail procedure?
                             vector->list vector make-vector vector-ref vector? number? symbol? set-car! set-cdr!
                             vector-set! display newline void quotient))
-
-(define (reset-global-env)
-  (set! global-env         ; for now, our initial global environment only contains 
-    (extend-env            ; procedure names.  Recall that an environment associates
-       *prim-proc-names*   ;  a value (not an expression) with an identifier.
+  (set! global-env
+    (extend-env
+       *prim-proc-names*
        (map prim-proc      
             *prim-proc-names*)
-       (empty-env))))
-
-(reset-global-env)
+       (empty-env)))
+  (set! global-syntax-env
+    (extend-env '() '() (empty-env)))
+  (load "syntaxExpansion.ss")
+  (load "procdedures.ss"))
 
 ; Usually an interpreter must define each 
 ; built-in procedure individually.  We are "cheating" a little bit.
@@ -462,8 +468,6 @@
 ;     (lambda (obj)
 ;       (or (preda obj) (predb obj)))))
 
-
-
 (define implst->list
   (letrec ([loop (lambda (vars)
     (if (pair? vars)
@@ -471,24 +475,9 @@
         (list vars)))])
   loop))
 
-
-
 (define list-set-at-index!
   (lambda (ls ind val)
     (if (= 0 ind) (set-car! ls val)
       (list-set-at-index! (cdr ls) (- ind 1) val))))
 
-
-
-; (define create-symbol-counter
-;   (lambda ()
-;     (let ([count 0])
-;       (lambda ()
-;         (let ([current count])
-;           (set! count (+ 1 count))
-;           (string->symbol (number->string current)))))))
-
-
-(load "syntaxExpansion.ss")
-
-(load "procdedures.ss")
+(reset-global-env)
